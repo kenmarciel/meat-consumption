@@ -1,0 +1,242 @@
+---
+title: "STAT 626 Project - Version 1"
+author: "Ken Marciel"
+date: "6/12/2021"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+## US Meat Production
+
+Packages
+```{r packages, message = F, warning = F}
+library(readxl) # for read_excel function
+library(astsa) # for tsplot function
+library(dplyr) # data cleaning
+```
+
+Data
+```{r data, message = F, warning = F}
+# read data from Excel file
+setwd("C:/Users/keoka/OneDrive - Texas A&M University/Courses/STAT_626/Project/Analysis/Ken/")
+meat <- read_excel("MeatStatsFull.xlsx", sheet = 2)
+head(meat)
+
+# total monthly red meat and poultry production from January 1983 to April 2021
+meat <- meat[464:5, c(1,17)] # changes data from reverse to chronological order
+colnames(meat) <- c("Month","MeatProd")
+head(meat)
+dim(meat) # 460 months = 38 1/3 years
+class(meat) # data frame
+meat = ts(meat) # change data frame to time series
+class(meat) # time series
+```
+
+### Exploratory Data Analysis
+
+Upward trend shows that the raw data is not stationary.
+
+```{r analysis}
+# 3-term moving average
+meat_ma = stats::filter(meat[,2], sides = 2, filter = rep(1/3,3))
+par(mfrow = c(2,1))
+tsplot(meat[,2], col=2)
+lines(meat_ma, col=4)
+```
+
+### Forecasting
+
+#### No Transformation
+
+AR models seem to work best, but the data is nonstationary.
+
+```{r}
+sarima.for(meat[,2], n.ahead=24, p=1, d=0, q=0) # AR(1)
+sarima.for(meat[,2], n.ahead=24, p=2, d=0, q=0) # AR(2)
+sarima.for(meat[,2], n.ahead=24, p=3, d=0, q=0) # AR(3)
+
+sarima.for(meat[,2], n.ahead=24, p=0, d=0, q=1) # MA(1)
+sarima.for(meat[,2], n.ahead=24, p=0, d=0, q=2) # MA(2)
+sarima.for(meat[,2], n.ahead=24, p=0, d=0, q=3) # MA(3)
+
+sarima.for(meat[,2], n.ahead=24, p=1, d=0, q=1) # ARMA(1,1)
+sarima.for(meat[,2], n.ahead=24, p=1, d=1, q=1) # ARIMA(1,1,1)
+sarima.for(meat[,2], n.ahead=24, p=1, d=2, q=1) # ARIMA(1,2,1)
+```
+
+#### Log Transformation
+
+The log transformation removes the trend, resulting in stationarity. Again, the AR models seem to perform best.
+
+```{r}
+sarima.for(log(meat[,2]), n.ahead=24, p=1, d=0, q=0) # AR(1)
+sarima.for(log(meat[,2]), n.ahead=24, p=2, d=0, q=0) # AR(2)
+sarima.for(log(meat[,2]), n.ahead=24, p=3, d=0, q=0) # AR(3)
+
+sarima.for(log(meat[,2]), n.ahead=24, p=0, d=0, q=1) # MA(1)
+sarima.for(log(meat[,2]), n.ahead=24, p=0, d=0, q=2) # MA(2)
+sarima.for(log(meat[,2]), n.ahead=24, p=0, d=0, q=3) # MA(3)
+
+sarima.for(log(meat[,2]), n.ahead=24, p=1, d=0, q=1) # ARMA(1,1)
+sarima.for(log(meat[,2]), n.ahead=24, p=1, d=1, q=1) # ARIMA(1,1,1)
+sarima.for(log(meat[,2]), n.ahead=24, p=1, d=2, q=1) # ARIMA(1,2,1)
+```
+
+#### First Order Differencing
+
+First order differencing doesn't remove the trend as well as the log transformation.
+
+```{r}
+sarima.for(meat[,2], n.ahead=24, p=1, d=1, q=0) # AR(1)
+sarima.for(meat[,2], n.ahead=24, p=2, d=1, q=0) # AR(2)
+sarima.for(meat[,2], n.ahead=24, p=3, d=1, q=0) # AR(3)
+
+sarima.for(meat[,2], n.ahead=24, p=0, d=1, q=1) # MA(1)
+sarima.for(meat[,2], n.ahead=24, p=0, d=1, q=2) # MA(2)
+sarima.for(meat[,2], n.ahead=24, p=0, d=1, q=3) # MA(3)
+
+sarima.for(meat[,2], n.ahead=24, p=1, d=1, q=1) # ARIMA(1,1,1)
+```
+
+#### Second Order Differencing
+
+Second order differencing creates too much stationarity for AR models, and not enough for MA models.
+
+```{r}
+sarima.for(meat[,2], n.ahead=24, p=1, d=2, q=0) # AR(1)
+sarima.for(meat[,2], n.ahead=24, p=2, d=2, q=0) # AR(2)
+sarima.for(meat[,2], n.ahead=24, p=3, d=2, q=0) # AR(3)
+
+sarima.for(meat[,2], n.ahead=24, p=0, d=2, q=1) # MA(1)
+sarima.for(meat[,2], n.ahead=24, p=0, d=2, q=2) # MA(2)
+sarima.for(meat[,2], n.ahead=24, p=0, d=2, q=3) # MA(3)
+
+sarima.for(meat[,2], n.ahead=24, p=1, d=2, q=1) # ARIMA(1,1,1)
+```
+
+
+#### Differencing for AR(3)
+
+Differencing doesn't appear to improve the stationarity or forecast. AR(3) on log transformed data seems to work the best of the models investigated so far.
+
+```{r}
+sarima.for(log(meat[,2]), n.ahead=24, p=3, d=0, q=0) # AR(1)
+sarima.for(log(meat[,2]), n.ahead=24, p=2, d=1, q=0) # AR(2)
+sarima.for(log(meat[,2]), n.ahead=24, p=3, d=2, q=0) # AR(3)
+```
+
+
+#### Forecasting using data sets provided by Jocelyn Hunyadi
+
+Jocelyn's code for data loading and cleaning
+
+```{r}
+# Load Data
+FI_long <- readRDS("FI_long.rds") %>% group_by(Time) %>% 
+  summarize(Production_capita = sum(Production_capita, na.rm = TRUE))
+FI_long_rmp <- readRDS("FI_long_rmp.rds")
+FI_long_big <- readRDS("FI_long_big.rds")
+FI_long_small <- readRDS("FI_long_small.rds")
+
+# Time Series Objects:
+FI_long_rm <- FI_long_rmp %>% 
+  dplyr::select(-Time) %>% arrange(Time2, decreasing = TRUE) %>% 
+  filter(Meat_Type == "TotalRedMeat") 
+all_rmp <-ts(FI_long_rm$Production, start=c(1983,1), end=c(2021,4), deltat=1/12)
+
+FI_long_p <- FI_long_rmp %>% filter(Meat_Type != "TotalRedMeat") %>% 
+  arrange(Time2, decreasing = TRUE)
+all_p <- ts(FI_long_p$Production, start=c(1983,1), end=c(2021,4), deltat=1/12)
+```
+
+
+24-Month Forecast: All Red Meat and Poultry
+
+```{r}
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=1, d=0, q=0) # AR(1)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=2, d=0, q=0) # AR(2)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=3, d=0, q=0) # AR(3)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=4, d=0, q=0) # AR(4)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=5, d=0, q=0) # AR(5)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=6, d=0, q=0) # AR(6)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=7, d=0, q=0) # AR(7)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=8, d=0, q=0) # AR(8)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=9, d=0, q=0) # AR(9)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=10, d=0, q=0) # AR(10)
+sarima.for(diff(log(all_rmp)), n.ahead=24, p=11, d=0, q=0) # AR(11)
+sarima.for(diff(log(all_rmp), ), n.ahead=24, p=12, d=0, q=0) # AR(12)
+```
+
+
+Checking the Model Conditions: All Red Meat and Poultry
+
+```{r}
+sarima(diff(log(all_rmp)), p=1, d=0, q=0)# AR(1)
+sarima(diff(log(all_rmp)), p=2, d=0, q=0) # AR(2)
+sarima(diff(log(all_rmp)), p=3, d=0, q=0) # AR(3)
+sarima(diff(log(all_rmp)), p=4, d=0, q=0) # AR(4)
+sarima(diff(log(all_rmp)), p=5, d=0, q=0) # AR(5)
+sarima(diff(log(all_rmp)), p=6, d=0, q=0) # AR(6)
+sarima(diff(log(all_rmp)), p=7, d=0, q=0) # AR(7)
+sarima(diff(log(all_rmp)), p=8, d=0, q=0) # AR(8)
+sarima(diff(log(all_rmp)), p=9, d=0, q=0) # AR(9)
+sarima(diff(log(all_rmp)), p=10, d=0, q=0) # AR(10)
+sarima(diff(log(all_rmp)), p=11, d=0, q=0) # AR(11)
+sarima(diff(log(all_rmp)), p=12, d=0, q=0) # AR(12)
+```
+
+Autocorrelation displayed by ACF of Residuals is lowest for AR(12).
+
+
+24-Month Forecast: All Poultry
+
+```{r}
+sarima.for(diff(log(all_p)), n.ahead=24, p=1, d=0, q=0) # AR(1)
+sarima.for(diff(log(all_p)), n.ahead=24, p=2, d=0, q=0) # AR(2)
+sarima.for(diff(log(all_p)), n.ahead=24, p=3, d=0, q=0) # AR(3)
+sarima.for(diff(log(all_p)), n.ahead=24, p=4, d=0, q=0) # AR(4)
+sarima.for(diff(log(all_p)), n.ahead=24, p=5, d=0, q=0) # AR(5)
+sarima.for(diff(log(all_p)), n.ahead=24, p=6, d=0, q=0) # AR(6)
+sarima.for(diff(log(all_p)), n.ahead=24, p=7, d=0, q=0) # AR(7)
+sarima.for(diff(log(all_p)), n.ahead=24, p=8, d=0, q=0) # AR(8)
+sarima.for(diff(log(all_p)), n.ahead=24, p=9, d=0, q=0) # AR(9)
+sarima.for(diff(log(all_p)), n.ahead=24, p=10, d=0, q=0) # AR(10)
+sarima.for(diff(log(all_p)), n.ahead=24, p=11, d=0, q=0) # AR(11)
+sarima.for(diff(log(all_p)), n.ahead=24, p=12, d=0, q=0) # AR(12)
+```
+
+
+Checking the Model Conditions: All Poultry
+
+```{r}
+sarima(diff(log(all_p)), p=1, d=0, q=0)# AR(1)
+sarima(diff(log(all_p)), p=2, d=0, q=0) # AR(2)
+sarima(diff(log(all_p)), p=3, d=0, q=0) # AR(3)
+sarima(diff(log(all_p)), p=4, d=0, q=0) # AR(4)
+sarima(diff(log(all_p)), p=5, d=0, q=0) # AR(5)
+sarima(diff(log(all_p)), p=6, d=0, q=0) # AR(6)
+sarima(diff(log(all_p)), p=7, d=0, q=0) # AR(7)
+sarima(diff(log(all_p)), p=8, d=0, q=0) # AR(8)
+sarima(diff(log(all_p)), p=9, d=0, q=0) # AR(9)
+sarima(diff(log(all_p)), p=10, d=0, q=0) # AR(10)
+sarima(diff(log(all_p)), p=11, d=0, q=0) # AR(11)
+sarima(diff(log(all_p)), p=12, d=0, q=0) # AR(12)
+```
+
+#### Yule-Walker Estimation
+
+```{r}
+# all red meat
+rmp.yw = ar.yw(all_rmp, order=12)
+rmp.yw$x.mean # mean estimate
+rmp.yw$ar # phi parameter estimates
+sqrt(diag(rmp.yw$asy.var.coef)) # their standard errors
+
+# all poultry
+p.yw = ar.yw(all_p, order=12)
+p.yw$x.mean # mean estimate
+p.yw$ar # phi parameter estimates
+sqrt(diag(p.yw$asy.var.coef)) # their standard errors
+```

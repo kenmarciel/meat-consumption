@@ -1,0 +1,331 @@
+---
+title: "STAT 626 Project - Version 3"
+author: "Ken Marciel"
+date: "7/30/2021"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+### Packages
+
+```{r packages, message = F, warning = F}
+library(readxl) # for read_excel function
+library(astsa) # for time series functions
+```
+
+
+### Data
+
+```{r data, message = F, warning = F, results=F}
+
+# Read data from Excel file (compiled by Jack Kramer)
+setwd("C:/Users/keoka/OneDrive - Texas A&M University/Courses/STAT_626/Project/Data Analysis/Jack/")
+data = read.csv("consolidated_data.csv")
+class(data) # data frame
+dim(data) # 460 rows, 41 columns
+head(data) # preview the first six rows of data set
+names(data) # display the column names of data set
+
+# Keep only the columns desired for analysis
+match("year", colnames(data)) # column 41
+match("month", colnames(data)) # column 40
+match("total.red.meat", colnames(data)) # column 7
+match("total.poultry", colnames(data)) # column 16
+match("Population_Millions", colnames(data)) # column 21
+match("Personal.Income", colnames(data)) # column 19
+data = data[,c(41,40,7,16,21,19)]
+
+# Change column names to have a consistent format
+colnames(data) = c("Year", "Month","Red_Meat", "Poultry", "Population",
+                   "Personal_Income")
+
+# Review structure of the data set
+class(data) # data frame
+dim(data) # 460 rows, 6 columns
+head(data) # preview the first six rows of reduced data set
+str(data)
+
+# Create variables to store data columns
+year = data[,1]
+mont = data[,2]
+meat = data[,3] # total U.S. red meat production in millions of pounds
+poul = data[,4] # total U.S. poultry production in millions of pounds
+popu = data[,5] # U.S. population in millions
+inco = data[,6] # U.S. personal income in billions of dollars
+
+# Range of observations for the Great Depression
+data[which(data$Year==2007 & data$Month==12),] # row 300
+data[which(data$Year==2009 & data$Month==6),] # row 318
+
+# Start of observations for the COVID-19 Pandemic
+data[which(data$Year==2020 & data$Month==3),] # row 447
+```
+
+
+### Exploratory Data Analysis: Time Series Plotted Separately
+
+```{r eda1}
+par(mfrow=c(4,1))
+tsplot(meat, main="U.S. Total Red Meat Production (in Millions of Pounds)",
+       col="red", ylab="")
+tsplot(poul, main="U.S. Total Poultry Production (in Millions of Pounds)",
+       col="orange", ylab="")
+tsplot(popu, main="U.S. Population (in Millions)",
+       col="blue", ylab="")
+tsplot(inco, main="U.S. Personal Income (in Billions of Dollars)",
+       col="green", ylab="")
+```
+
+Note the upward trend in all of the series, and the apparent seasonality in the meat and poultry series.
+
+
+### Exploratory Data Analysis: Time Series Plotted Together
+
+```{r eda2}
+tsplot(meat, main="", ylab="", col="red")
+lines(poul, col="orange")
+abline(v=c(300,318,447))
+```
+
+Note that poultry has a steeper upward trend than red meat. Both series display a downard trend during the Great Recession (December 2007 to June 2009), and a leveling off during the COVID-19 pandemic (March 2020 to present). Both series have similar seasonality.
+
+
+#### Exploratory Data Analysis: Scatterplot Matrix
+
+```{r eda3}
+# Code from page 43 of textbook: Shumway, Stoffer (2019)
+panel.cor = function(x, y, ...){
+  usr = par("usr"); on.exit(par(usr))
+  par(usr = c(0,1,0,1))
+  r = round(cor(x, y), 2)
+  text(0.5, 0.5, r, cex=1.75)
+}
+pairs(cbind(RedMeat=meat, Poultry=poul, Population=popu, Income=inco), lower.panel=panel.cor)
+```
+
+The scatterplot matrix indicates that red meat is nonlinearly related to population and income, and the same is true for poultry. Population and income are highly correlated, and have nearly identical correlation coefficients for red meat and poultry.
+
+For ease, let $M_{t}$ denote total red meat production, $P_{t}$ denote total poultry production, $L_{t}$ denote total population, and $I_{t}$ denote total personal income. Also, let $L.$ and $I.$ denote the mean of population, and the mean of personal income, respectively.
+
+
+#### Exploratory Data Analysis: Collinearity
+
+```{r eda4}
+par(mfrow=2:1)
+plot(popu, popu^2) # collinear
+cor(popu, popu^2)
+pop = popu - mean(popu) # center population
+pop2 = pop^2
+plot(pop, pop2) # not collinear
+cor(pop, pop2)
+
+par(mfrow=2:1)
+plot(inco, inco^2) # collinear
+cor(inco, inco^2)
+inc = inco - mean(inco) # center income
+inc2 = inc^2
+plot(inc, inc2)
+cor(inc, inc2)
+```
+
+For this data set, $L_{t}$ and $L_{t}^2$ are highly collinear, but $L_{t}-L.$ and $(L_{t}-L.)^2$ are not. Similarly, $I_{t}$ and $I_{t}^2$ are highly collinear, while $I_{t}-I.$ and $(I_{t}-I.)^2$ are moderately collinear. Therefore, it is better to include $L_{t}$ instead of $I_{t}$ in the model.
+
+
+### Model Formulation: Multiple Linear Regression
+
+Based on the scatterplot, three models will be entertained for each of red meat and poultry. They are
+
+M1: $M_{t}=\beta_0+\beta_{1}+w_{t}$  
+M2: $M_{t}=\beta_0+\beta_{1}+\beta_{2}(L_{t}-L.)+w_{t}$  
+M3: $M_{t}=\beta_0+\beta_{1}+\beta_{2}(L_{t}-L.)+\beta_{3}(L_{t}-L.)^2+w_{t}$
+
+P1: $P_{t}=\beta_0+\beta_{1}+w_{t}$  
+P2: $P_{t}=\beta_0+\beta_{1}+\beta_{2}(L_{t}-L.)+w_{t}$  
+P3: $P_{t}=\beta_0+\beta_{1}+\beta_{2}(L_{t}-L.)+\beta_{3}(L_{t}-L.)^2+w_{t}$
+
+where we adjust population for its mean, $L.$, to avoid collinearity problems.
+
+Note that M1 and P1 are trend only models, M2 and P2 add a linear population term, M3 and P3 add a curvilinear population term.
+
+
+### Multiple Linear Regression: Total Meat Production
+
+```{r regress_meat}
+trend_m = time(meat)
+num_m = length(meat) # 460 observations
+
+# Model M1
+fit_m1 = lm(meat ~ trend_m, na.action=NULL)
+(m1_out = summary(fit_m1))
+summary(aov(fit_m1))
+AIC(fit_m1)/num_m - log(2*pi)
+BIC(fit_m1)/num_m
+rss_m1 = m1_out$sigma
+
+# Model M2
+fit_m2 = lm(meat ~ trend_m + pop, na.action=NULL)
+(m2_out = summary(fit_m2))
+summary(aov(fit_m2))
+AIC(fit_m2)/num_m - log(2*pi)
+BIC(fit_m2)/num_m
+rss_m2 = m2_out$sigma
+
+# Model M3
+fit_m3 = lm(meat ~ trend_m + pop + pop2, na.action=NULL)
+(m3_out = summary(fit_m3))
+summary(aov(fit_m3))
+AIC(fit_m3)/num_m - log(2*pi)
+BIC(fit_m3)/num_m
+rss_m3 = m3_out$sigma
+
+# Comparison of M1 (reduced) to M2 (full) model using residual sums of squares
+((rss_m1 - rss_m2)/(3-2))/(rss_m2/(460-3-1)) # 4.1159 significant
+qf(.05, 3-2, 460-3-1, lower.tail=FALSE) # 3.8619
+
+# Comparison of M1 (reduced) to M3 (full) model using residual sums of squares
+((rss_m1 - rss_m3)/(4-2))/(rss_m3/(460-4-1)) # 2.1425 nonsignificant
+qf(.05, 3-2, 460-3-1, lower.tail=FALSE) # 3.8619
+```
+
+R-squared is nearly the same for all three models for meat production. M1 has the lowest AIC and BIC scores of the three models. Both of the estimated coefficients for M1 are statistically significant. Comparison of M1 (reduced) to M2 (full) models using residual sums of squares produced a statistically significant F-test, whereas comparison of M1 to M3 did not. However, the estimated coefficients of the linear and quadradtic terms, in M2 and M3, were not statistically significant. Therefore, M1 does the best of the three models.
+
+
+### Multiple Linear Regression: Total Poultry Production
+
+```{r regress_poultry}
+trend_p = time(poul)
+num_p = length(poul)
+
+# Model P1
+fit_p1 = lm(poul ~ trend_p, na.action=NULL)
+(p1_out = summary(fit_p1))
+summary(aov(fit_p1))
+AIC(fit_p1)/num_p - log(2*pi)
+BIC(fit_p1)/num_p
+rss_p1 = p1_out$sigma
+
+# Model P2
+fit_p2 = lm(poul ~ trend_p + pop, na.action=NULL)
+(p2_out = summary(fit_p2))
+summary(aov(fit_p2))
+AIC(fit_p2)/num_p - log(2*pi)
+BIC(fit_p2)/num_p
+rss_p2 = p2_out$sigma
+
+# Model P3
+fit_p3 = lm(poul ~ trend_p + pop + pop2, na.action=NULL)
+(p3_out = summary(fit_p3))
+summary(aov(fit_p3))
+AIC(fit_p3)/num_p - log(2*pi)
+BIC(fit_p3)/num_p
+rss_p3 = p3_out$sigma
+
+# Model P4
+fit_p4 = lm(poul ~ trend_p + pop2, na.action=NULL)
+(p4_out = summary(fit_p4))
+summary(aov(fit_p4))
+AIC(fit_p4)/num_p - log(2*pi)
+BIC(fit_p4)/num_p
+rss_p4 = p4_out$sigma
+
+# Comparison of P1 (reduced) to P2 (full) model using residual sums of squares
+((rss_p1 - rss_p2)/(3-2))/(rss_p2/(460-3-1)) # 4.1159 significant
+qf(.05, 3-2, 460-3-1, lower.tail=FALSE) # 3.8619
+
+# Comparison of P1 (reduced) to P3 (full) model using residual sums of squares
+((rss_p1 - rss_p3)/(4-2))/(rss_p3/(460-4-1)) # 2.1425 nonsignificant
+qf(.05, 3-2, 460-3-1, lower.tail=FALSE) # 3.8619
+```
+
+P3 has the highest R-squared, as well as the lowest AIC and BIC of the three poultry models. The income term, $I$, in the P3 model has an estimated coefficient that is not statistically significant. However, when a fourth model was fitted with that term removed, there is essentially no change in R-squared, AIC, or BIC. Therefore, I will leave the linear term in the model and select P3 from the three poultry models.
+
+
+### Model Formulation: Total Meat Production
+```{r formulate_meat, results=F}
+plot(fit_m1)
+tsplot(resid(fit_m1)) 
+acf2(resid(fit_m1), max.lag=50)
+```
+
+The residual plots for the M2 model show that the assumption of constant variance is valid. Tne Q-Q plot shows that the assumption of normality is valid. There are three outliers, but none have high leverage based on Cook's distance. Therefore, log transformation of the series may not be necessary. The time series plot suggests that the data alternate between upward and downward trends. Therefore, differencing is indicated to detrend the data.
+
+The time series plot suggests the possibility of a seasonal pattern in the data, and therefore autocorrelated errors. The correlograms confirm the presence of significant autocorrelation (within a confidence band of two standard errors).
+
+**Seasonal:** It appears that at the seasons (s = 12) the ACF is tailing off at lags 1s, 2s, 3s, 4s. This slow decay indicates seasonal differencing. Typically, differencing of order one is sufficient to obtain seasonal stationarity. The PACF appears to cut off after lag 1s. These results imply an SAR(1), *P* = 1, *D* = 1, *Q* = 0, in the seasonal component.
+
+**Non-Seasonal:** Inspecting the sample ACF and PACF at the first few lags, it appears as though the ACF tails off, whereas the PACF cuts off at lag 3. This suggests an AR(3) within the seasons, *p* = 3 and *q* = 0.
+
+Therefore, I would choose the following model:
+
+ARIMA(3,1,0)x(1,1,0)$_{12}$
+
+
+### Model Estimation: Total Meat Production
+
+```{r estimate_meat, results=F}
+sarima(meat, 3,1,3, 1,1,1,12, xreg=cbind(trend_m+pop+pop2))
+```
+
+The plot of standardized residuals displays no obvious pattern. The ACF plot of residuals suggests that most of the autocorrelation is nonsignificant. the Q-Q plot suggests that the normality assumption is valid, despite the presence of four outliers which were previously not found to have problematic leverage. The q-statistic has *p*-values that are all significant, leading to rejection of the null hypothesis that the residuals are white.
+
+
+### Forecasting: Total Meat Production
+
+```{r forecast_meat, results=F}
+# End of data set
+data[which(data$Year==2021 & data$Month==4),] # row 460
+meat = ts(meat, start = c(1983,1), frequency = 12)
+sarima.for(meat, 60, 3,1,0, 1,1,0,12)
+abline(v=460)
+```
+The forecasts out five years for total meat production is shown above.
+
+
+### Model Formulation: Total Poultry Production
+
+```{r formulate_poultry, results=F}
+plot(fit_p3)
+tsplot(resid(fit_p3)) 
+acf2(resid(fit_p3), max.lag=50)
+```
+
+The residual plots for the P3 model suggest that the variance is nonconstant. Tne Q-Q plot shows that the assumption of normality is valid. There is a high-leverage outlier at month 459, corresponding to an unusual rise and fall in production for February and March 2021. The time series plot suggests a shifting trend, and therefore a lack of stationarity. Therefore, the data can be logged to stabilize the variance, then differenced to remove the trend.
+
+The time series plot suggests the possibility of a seasonal pattern in the data, and therefore autocorrelated errors. The correlograms confirm the presence of significant autocorrelation (within a confidence band of two standard errors).
+
+#### Transformations: Total Poultry Production
+```{r transform_poultry, results=F}
+poul_dl = diff(log(poul)) # apply logarithm, then difference
+plot(poul_dl)
+tsplot(poul_dl)
+acf2(poul_dl, max.lag=50)
+```
+
+**Seasonal:** It appears that at the seasons (s = 12) the ACF is tailing off at lags approximately near 1s, 2s, 3s, 4s. This slow decay indicates seasonal differencing. Typically, differencing of order one is sufficient to obtain seasonal stationarity. The PACF appears to cut off after about lag 1s. These results imply an SAR(1), *P* = 1, *D* = 1, *Q* = 0, in the seasonal component.
+
+**Non-Seasonal:** Inspecting the sample ACF and PACF at the first few lags, it appears as though the ACF tails off, whereas the PACF cuts off at lag 2. This suggests and ARMA(2,0) within the seasons, *p* = 2 and *q* = 0.
+
+Therefore, I would choose the following model:
+
+ARIMA(2,1,0)x(1,1,0)$_{12}$
+
+
+### Model Estimation: Total Poultry Production
+
+```{r estimate_poultry, results=F}
+sarima(log(poul), p=2,d=0,q=0, P=1,D=1,Q=0,S=11, xreg=cbind(trend_p, pop, pop2))
+```
+
+The plot of standardized residuals displays no obvious pattern. The ACF plot of residuals shows the presence of significant autocorrelation. the Q-Q plot suggests that the normality assumption is valid. The q-statistic has *p*-values that are all significant, leading to rejection of the null hypothesis that the residuals are white.
+
+
+### Forecasting: Total Poultry Production
+
+```{r forecast_poultry, results=F}
+sarima.for(log(poul), 60, 3,1,0, 1,1,0,12)
+abline(v=460)
+```
+
+The forecasts out five years for the log of total poultry production is shown above.
